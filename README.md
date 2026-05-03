@@ -1,10 +1,15 @@
 # Cube 1 Engine
 
-A slightly modified Cube 1 Engine
+A slightly modified Cube 1 Engine to work on modern systems.
+
+Tweaks:
+- Use STB Libraries instead of SDL_Image
+- Legacy OpenGL fixes for macOS
+- Use CMake instead of `make` as a build system
 
 ## Building
 
-Dependencies: SDL 1.2, SDL_image, SDL_mixer, OpenGL, zlib
+Dependencies: SDL 1.2, SDL_mixer, OpenGL, zlib
 ```sh
 mkdir build && cd build
 cmake ..

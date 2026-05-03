@@ -2,6 +2,12 @@
 
 #include "cube.h"
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
+int scr_w = 1280;
+int scr_h = 720;
+
 void cleanup(char *msg)         // single program exit point;
 {
 	stop();
@@ -42,32 +48,29 @@ void *alloc(int s)              // for some big chunks... most other allocs use 
     return b;
 };
 
-int scr_w = 640;
-int scr_h = 480;
-
 void screenshot()
 {
-    SDL_Surface *image;
-    SDL_Surface *temp;
-    int idx;
-    if(image = SDL_CreateRGBSurface(SDL_SWSURFACE, scr_w, scr_h, 24, 0x0000FF, 0x00FF00, 0xFF0000, 0))
+    uchar *image = (uchar *)malloc(scr_w * scr_h * 3);
+    if(image)
     {
-        if(temp  = SDL_CreateRGBSurface(SDL_SWSURFACE, scr_w, scr_h, 24, 0x0000FF, 0x00FF00, 0xFF0000, 0))
+        glReadPixels(0, 0, scr_w, scr_h, GL_RGB, GL_UNSIGNED_BYTE, image);
+        for(int idx = 0; idx < scr_h/2; idx++)
         {
-            glReadPixels(0, 0, scr_w, scr_h, GL_RGB, GL_UNSIGNED_BYTE, image->pixels);
-            for (idx = 0; idx<scr_h; idx++)
+            uchar *top = image + 3 * scr_w * idx;
+            uchar *bottom = image + 3 * scr_w * (scr_h - 1 - idx);
+            for(int col = 0; col < 3 * scr_w; col++)
             {
-                char *dest = (char *)temp->pixels+3*scr_w*idx;
-                memcpy(dest, (char *)image->pixels+3*scr_w*(scr_h-1-idx), 3*scr_w);
-                endianswap(dest, 3, scr_w);
-            };
-            sprintf_sd(buf)("screenshots/screenshot_%d.bmp", lastmillis);
-            SDL_SaveBMP(temp, path(buf));
-            SDL_FreeSurface(temp);
-        };
-        SDL_FreeSurface(image);
-    };
-};
+                uchar temp = top[col];
+                top[col] = bottom[col];
+                bottom[col] = temp;
+            }
+        }
+        sprintf_sd(buf)("screenshots/screenshot_%d.png", lastmillis);
+        stbi_write_bmp(path(buf), scr_w, scr_h, 3, image);
+        conoutf("other: Screenshot taken as %s", buf);
+        free(image);
+    }
+}
 
 COMMAND(screenshot, ARG_NONE);
 COMMAND(quit, ARG_NONE);

@@ -45,7 +45,6 @@ find_package(OpenGL REQUIRED)
 find_package(ZLIB REQUIRED)
 
 pkg_check_modules(SDL REQUIRED sdl)
-pkg_check_modules(SDL_IMAGE REQUIRED SDL_image)
 pkg_check_modules(SDL_MIXER REQUIRED SDL_mixer)
 
 if(BUILD_CLIENT)
@@ -54,7 +53,6 @@ if(BUILD_CLIENT)
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/3rdparty/stb
         ${SDL_INCLUDE_DIRS}
-        ${SDL_IMAGE_INCLUDE_DIRS}
         ${SDL_MIXER_INCLUDE_DIRS}
         ${ZLIB_INCLUDE_DIRS}
     )
@@ -67,13 +65,11 @@ if(BUILD_CLIENT)
     )
     target_link_directories(cube_client PRIVATE
         ${SDL_LIBRARY_DIRS}
-        ${SDL_IMAGE_LIBRARY_DIRS}
         ${SDL_MIXER_LIBRARY_DIRS}
     )
     target_link_libraries(cube_client PRIVATE
         enet
         ${SDL_LIBRARIES}
-        ${SDL_IMAGE_LIBRARIES}
         ${SDL_MIXER_LIBRARIES}
         OpenGL::GL
         OpenGL::GLU
