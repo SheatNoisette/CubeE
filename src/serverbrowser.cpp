@@ -1,13 +1,13 @@
 // serverbrowser.cpp: eihrul's concurrent resolver, and server browser window
 // management
 
-#include "SDL_thread.h"
 #include "cube.h"
 
 struct resolverthread {
     SDL_Thread* thread;
     char* query;
     int starttime;
+    volatile bool should_exit;
 };
 
 struct resolverresult {
@@ -18,15 +18,17 @@ struct resolverresult {
 vector<resolverthread> resolverthreads;
 vector<char*> resolverqueries;
 vector<resolverresult> resolverresults;
-SDL_mutex* resolvermutex;
-SDL_sem* resolversem;
+SDL_Mutex* resolvermutex;
+SDL_Semaphore* resolversem;
 int resolverlimit = 1000;
 
 int resolverloop(void* data)
 {
     resolverthread* rt = (resolverthread*)data;
     for (;;) {
-        SDL_SemWait(resolversem);
+        SDL_WaitSemaphore(resolversem);
+        if (rt->should_exit)
+            break;
         SDL_LockMutex(resolvermutex);
         if (resolverqueries.empty()) {
             SDL_UnlockMutex(resolvermutex);
@@ -38,9 +40,11 @@ int resolverloop(void* data)
         ENetAddress address = { ENET_HOST_ANY, CUBE_SERVINFO_PORT };
         enet_address_set_host(&address, rt->query);
         SDL_LockMutex(resolvermutex);
-        resolverresult& rr = resolverresults.add();
-        rr.query = rt->query;
-        rr.address = address;
+        if (!rt->should_exit) {
+            resolverresult& rr = resolverresults.add();
+            rr.query = rt->query;
+            rr.address = address;
+        }
         rt->query = NULL;
         rt->starttime = 0;
         SDL_UnlockMutex(resolvermutex);
@@ -58,7 +62,8 @@ void resolverinit(int threads, int limit)
         resolverthread& rt = resolverthreads.add();
         rt.query = NULL;
         rt.starttime = 0;
-        rt.thread = SDL_CreateThread(resolverloop, &rt);
+        rt.should_exit = false;
+        rt.thread = SDL_CreateThread(resolverloop, "resolver", &rt);
         --threads;
     };
 };
@@ -66,13 +71,17 @@ void resolverinit(int threads, int limit)
 void resolverstop(resolverthread& rt, bool restart)
 {
     SDL_LockMutex(resolvermutex);
-    SDL_KillThread(rt.thread);
+    rt.should_exit = true;
+    SDL_UnlockMutex(resolvermutex);
+    SDL_SignalSemaphore(resolversem);
+    SDL_WaitThread(rt.thread, NULL);
     rt.query = NULL;
     rt.starttime = 0;
     rt.thread = NULL;
-    if (restart)
-        rt.thread = SDL_CreateThread(resolverloop, &rt);
-    SDL_UnlockMutex(resolvermutex);
+    if (restart) {
+        rt.should_exit = false;
+        rt.thread = SDL_CreateThread(resolverloop, "resolver", &rt);
+    }
 };
 
 void resolverclear()
@@ -80,7 +89,7 @@ void resolverclear()
     SDL_LockMutex(resolvermutex);
     resolverqueries.setsize(0);
     resolverresults.setsize(0);
-    while (SDL_SemTryWait(resolversem) == 0)
+    while (SDL_TryWaitSemaphore(resolversem))
         ;
     loopv(resolverthreads)
     {
@@ -94,7 +103,7 @@ void resolverquery(char* name)
 {
     SDL_LockMutex(resolvermutex);
     resolverqueries.add(name);
-    SDL_SemPost(resolversem);
+    SDL_SignalSemaphore(resolversem);
     SDL_UnlockMutex(resolvermutex);
 };
 
@@ -254,7 +263,7 @@ void refreshservers()
         } else {
             sprintf_s(si.full)(si.address.host != ENET_HOST_ANY ? "%s [waiting for server response]" : "%s [unknown host]\t", si.name);
         }
-        si.full[50] = 0; // cut off too long server descriptions
+        si.full[50] = 0;
         menumanual(1, i, si.full);
         if (!--maxmenu)
             return;

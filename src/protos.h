@@ -17,6 +17,7 @@ extern void writecfg();
 
 // console
 extern void keypress(int code, bool isdown, int cooked);
+extern void textinput(const char* text);
 extern void renderconsole();
 extern void conoutf(const char *s, ...);
 extern char *getcurcommand();

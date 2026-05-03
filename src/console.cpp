@@ -25,16 +25,15 @@ void setconskip(int n)
 
 COMMANDN(conskip, setconskip, ARG_1INT);
 
-void conline(const char* sf, bool highlight) // add a line to the console buffer
+void conline(const char* sf, bool highlight)
 {
     cline cl;
     cl.cref = conlines.length() > 100
         ? conlines.pop().cref
-        : newstringbuf(""); // constrain the buffer size
-    cl.outtime = lastmillis; // for how long to keep line on screen
+        : newstringbuf("");
+    cl.outtime = lastmillis;
     conlines.insert(0, cl);
-    if (highlight) // show line in a different colour, for chat etc.
-    {
+    if (highlight) {
         cl.cref[0] = '\f';
         cl.cref[1] = 0;
         strcat_s(cl.cref, sf);
@@ -52,8 +51,7 @@ void conoutf(const char* s, ...)
     sprintf_sdv(sf, s);
     s = sf;
     int n = 0;
-    while (strlen(s) > WORDWRAP) // cut strings to fit on screen
-    {
+    while (strlen(s) > WORDWRAP) {
         string t;
         strn0cpy(t, s, WORDWRAP + 1);
         conline(t, n++ != 0);
@@ -62,7 +60,7 @@ void conoutf(const char* s, ...)
     conline(s, n != 0);
 };
 
-void renderconsole() // render buffer taking into account time & scrolling
+void renderconsole()
 {
     int nd = 0;
     char* refs[ndraw];
@@ -110,11 +108,15 @@ void bindkey(char* key, char* action)
 
 COMMANDN(bind, bindkey, ARG_2STR);
 
-void saycommand(char* init) // turns input to the command line on or off
+void saycommand(char* init)
 {
-    SDL_EnableUNICODE(saycommandon = (init != NULL));
-    if (!editmode)
-        keyrepeat(saycommandon);
+    saycommandon = (init != NULL);
+    if (screen) {
+        if (saycommandon)
+            SDL_StartTextInput(screen);
+        else
+            SDL_StopTextInput(screen);
+    }
     if (!init)
         init = "";
     strcpy_s(commandbuf, init);
@@ -125,54 +127,15 @@ void mapmsg(char* s) { strn0cpy(hdr.maptitle, s, 128); };
 COMMAND(saycommand, ARG_VARI);
 COMMAND(mapmsg, ARG_1STR);
 
-#ifndef WIN32
-#ifndef __APPLE__
-#include <X11/Xlib.h>
-#endif
-#include <SDL_syswm.h>
-#endif
-
 void pasteconsole()
 {
-#ifdef WIN32
-    if (!IsClipboardFormatAvailable(CF_TEXT))
+    if (!SDL_HasClipboardText())
         return;
-    if (!OpenClipboard(NULL))
+    char* cb = SDL_GetClipboardText();
+    if (!cb)
         return;
-    char* cb = (char*)GlobalLock(GetClipboardData(CF_TEXT));
     strcat_s(commandbuf, cb);
-    GlobalUnlock(cb);
-    CloseClipboard();
-#elif defined(__APPLE__)
-// macOS clipboard not supported via X11
-#else
-    SDL_SysWMinfo wminfo;
-    SDL_VERSION(&wminfo.version);
-    wminfo.subsystem = SDL_SYSWM_X11;
-    if (!SDL_GetWMInfo(&wminfo))
-        return;
-    int cbsize;
-    char* cb = XFetchBytes(wminfo.info.x11.display, &cbsize);
-    if (!cb || !cbsize)
-        return;
-    int commandlen = strlen(commandbuf);
-    for (char *cbline = cb, *cbend;
-        commandlen + 1 < _MAXDEFSTR && cbline < &cb[cbsize];
-        cbline = cbend + 1) {
-        cbend = (char*)memchr(cbline, '\0', &cb[cbsize] - cbline);
-        if (!cbend)
-            cbend = &cb[cbsize];
-        if (commandlen + cbend - cbline + 1 > _MAXDEFSTR)
-            cbend = cbline + _MAXDEFSTR - commandlen - 1;
-        memcpy(&commandbuf[commandlen], cbline, cbend - cbline);
-        commandlen += cbend - cbline;
-        commandbuf[commandlen] = '\n';
-        if (commandlen + 1 < _MAXDEFSTR && cbend < &cb[cbsize])
-            ++commandlen;
-        commandbuf[commandlen] = '\0';
-    };
-    XFree(cb);
-#endif
+    SDL_free(cb);
 };
 
 cvector vhistory;
@@ -190,10 +153,19 @@ void history(int n)
 
 COMMAND(history, ARG_1INT);
 
+void textinput(const char* text)
+{
+    if (!saycommandon)
+        return;
+    for (int i = 0; text[i]; i++) {
+        char add[] = { text[i], 0 };
+        strcat_s(commandbuf, add);
+    }
+}
+
 void keypress(int code, bool isdown, int cooked)
 {
-    if (saycommandon) // keystrokes go to commandline
-    {
+    if (saycommandon) {
         if (isdown) {
             switch (code) {
             case SDLK_RETURN:
@@ -222,8 +194,8 @@ void keypress(int code, bool isdown, int cooked)
                 complete(commandbuf);
                 break;
 
-            case SDLK_v:
-                if (SDL_GetModState() & (KMOD_LCTRL | KMOD_RCTRL)) {
+            case SDLK_V:
+                if (SDL_GetModState() & (SDL_KMOD_LCTRL | SDL_KMOD_RCTRL)) {
                     pasteconsole();
                     return;
                 };
@@ -239,7 +211,7 @@ void keypress(int code, bool isdown, int cooked)
             if (code == SDLK_RETURN) {
                 if (commandbuf[0]) {
                     if (vhistory.empty() || strcmp(vhistory.last(), commandbuf)) {
-                        vhistory.add(newstring(commandbuf)); // cap this?
+                        vhistory.add(newstring(commandbuf));
                     };
                     histpos = vhistory.length();
                     if (commandbuf[0] == '/')
@@ -252,10 +224,9 @@ void keypress(int code, bool isdown, int cooked)
                 saycommand(NULL);
             };
         };
-    } else if (!menukey(code, isdown)) // keystrokes go to menu
-    {
+    } else if (!menukey(code, isdown)) {
         loopi(
-            numkm) if (keyms[i].code == code) // keystrokes go to game, lookup in keymap and execute
+            numkm) if (keyms[i].code == code)
         {
             string temp;
             strcpy_s(temp, keyms[i].action);

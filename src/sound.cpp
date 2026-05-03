@@ -1,12 +1,6 @@
-// sound.cpp: uses fmod on windows and sdl_mixer on unix (both had problems on
-// the other platform)
+// sound.cpp: SDL3_mixer based audio
 
 #include "cube.h"
-
-// #ifndef WIN32    // NOTE: fmod not being supported for the moment as it does
-// not allow stereo pan/vol updating during playback
-#define USE_MIXER
-// #endif
 
 VARP(soundvol, 0, 255, 255);
 VARP(musicvol, 0, 128, 255);
@@ -20,36 +14,22 @@ struct soundloc {
     bool inuse;
 } soundlocs[MAXCHAN];
 
-#ifdef USE_MIXER
-#include "SDL_mixer.h"
-#define MAXVOL MIX_MAX_VOLUME
-Mix_Music* mod = NULL;
-void* stream = NULL;
-#else
-#include "fmod.h"
-#define MAXVOL 255
-FMUSIC_MODULE* mod = NULL;
-FSOUND_STREAM* stream = NULL;
-#endif
+#define MAXVOL 1.0f
+
+static MIX_Mixer* mixer = NULL;
+static MIX_Track* music_track = NULL;
+static MIX_Audio* mod = NULL;
+static MIX_Track* sound_tracks[MAXCHAN];
 
 void stopsound()
 {
     if (nosound)
         return;
     if (mod) {
-#ifdef USE_MIXER
-        Mix_HaltMusic();
-        Mix_FreeMusic(mod);
-#else
-        FMUSIC_FreeSong(mod);
-#endif
+        if (music_track)
+            MIX_StopTrack(music_track, 0);
+        MIX_DestroyAudio(mod);
         mod = NULL;
-    };
-    if (stream) {
-#ifndef USE_MIXER
-        FSOUND_Stream_Close(stream);
-#endif
-        stream = NULL;
     };
 };
 
@@ -58,20 +38,25 @@ VAR(soundbufferlen, 128, 1024, 4096);
 void initsound()
 {
     memset(soundlocs, 0, sizeof(soundloc) * MAXCHAN);
-#ifdef USE_MIXER
-    if (Mix_OpenAudio(SOUNDFREQ, MIX_DEFAULT_FORMAT, 2, soundbufferlen) < 0) {
-        conoutf("sound init failed (SDL_mixer): %s", (size_t)Mix_GetError());
+    if (!MIX_Init()) {
+        conoutf("sound init failed (SDL_mixer): %s", SDL_GetError());
         nosound = true;
+        return;
     };
-    Mix_AllocateChannels(MAXCHAN);
-#else
-    if (FSOUND_GetVersion() < FMOD_VERSION)
-        fatal("old FMOD dll");
-    if (!FSOUND_Init(SOUNDFREQ, MAXCHAN, FSOUND_INIT_GLOBALFOCUS)) {
-        conoutf("sound init failed (FMOD): %d", FSOUND_GetError());
+    SDL_AudioSpec spec;
+    spec.format = SDL_AUDIO_S16;
+    spec.channels = 2;
+    spec.freq = SOUNDFREQ;
+    mixer = MIX_CreateMixerDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec);
+    if (!mixer) {
+        conoutf("sound init failed (SDL_mixer): %s", SDL_GetError());
         nosound = true;
+        return;
     };
-#endif
+    for (int i = 0; i < MAXCHAN; i++) {
+        sound_tracks[i] = MIX_CreateTrack(mixer);
+    };
+    music_track = MIX_CreateTrack(mixer);
 };
 
 void music(char* name)
@@ -83,35 +68,21 @@ void music(char* name)
         string sn;
         strcpy_s(sn, "packages/");
         strcat_s(sn, name);
-#ifdef USE_MIXER
-        if (mod = Mix_LoadMUS(path(sn))) {
-            Mix_PlayMusic(mod, -1);
-            Mix_VolumeMusic((musicvol * MAXVOL) / 255);
+        mod = MIX_LoadAudio(mixer, path(sn), true);
+        if (mod) {
+            MIX_SetTrackAudio(music_track, mod);
+            MIX_SetTrackGain(music_track, (musicvol * MAXVOL) / 255);
+            SDL_PropertiesID props = SDL_CreateProperties();
+            SDL_SetNumberProperty(props, MIX_PROP_PLAY_LOOPS_NUMBER, -1);
+            MIX_PlayTrack(music_track, props);
+            SDL_DestroyProperties(props);
         };
-#else
-        if (mod = FMUSIC_LoadSong(path(sn))) {
-            FMUSIC_PlaySong(mod);
-            FMUSIC_SetMasterVolume(mod, musicvol);
-        } else if (stream = FSOUND_Stream_Open(path(sn), FSOUND_LOOP_NORMAL, 0, 0)) {
-            int chan = FSOUND_Stream_Play(FSOUND_FREE, stream);
-            if (chan >= 0) {
-                FSOUND_SetVolume(chan, (musicvol * MAXVOL) / 255);
-                FSOUND_SetPaused(chan, false);
-            };
-        } else {
-            conoutf("could not play music: %s", sn);
-        };
-#endif
     };
 };
 
 COMMAND(music, ARG_1STR);
 
-#ifdef USE_MIXER
-vector<Mix_Chunk*> samples;
-#else
-vector<FSOUND_SAMPLE*> samples;
-#endif
+vector<MIX_Audio*> samples;
 
 cvector snames;
 
@@ -130,34 +101,36 @@ void cleansound()
     if (nosound)
         return;
     stopsound();
-#ifdef USE_MIXER
-    Mix_CloseAudio();
-#else
-    FSOUND_Close();
-#endif
+    for (int i = 0; i < MAXCHAN; i++) {
+        if (sound_tracks[i])
+            MIX_DestroyTrack(sound_tracks[i]);
+    };
+    if (music_track)
+        MIX_DestroyTrack(music_track);
+    loopv(samples) if (samples[i]) MIX_DestroyAudio(samples[i]);
+    if (mixer)
+        MIX_DestroyMixer(mixer);
+    MIX_Quit();
 };
 
 VAR(stereo, 0, 1, 1);
 
 void updatechanvol(int chan, vec* loc)
 {
-    int vol = soundvol, pan = 255 / 2;
+    float vol = soundvol / 255.0f, pan = 0.5f;
     if (loc) {
         vdist(dist, v, *loc, player1->o);
-        vol -= (int)(dist * 3 * soundvol / 255); // simple mono distance attenuation
+        vol -= (dist * 3 * soundvol / 255) / 255.0f;
+        if (vol < 0)
+            vol = 0;
         if (stereo && (v.x != 0 || v.y != 0)) {
-            float yaw = -atan2(v.x, v.y) - player1->yaw * (PI / 180.0f); // relative angle of sound along X-Y axis
-            pan = int(255.9f * (0.5 * sin(yaw) + 0.5f)); // range is from 0 (left) to 255 (right)
+            float yaw = -atan2(v.x, v.y) - player1->yaw * (PI / 180.0f);
+            pan = 0.5f * sin(yaw) + 0.5f;
         };
     };
-    vol = (vol * MAXVOL) / 255;
-#ifdef USE_MIXER
-    Mix_Volume(chan, vol);
-    Mix_SetPanning(chan, 255 - pan, pan);
-#else
-    FSOUND_SetVolume(chan, vol);
-    FSOUND_SetPan(chan, pan);
-#endif
+    MIX_SetTrackGain(sound_tracks[chan], vol);
+    MIX_StereoGains gains = { 1.0f - pan, pan };
+    MIX_SetTrackStereo(sound_tracks[chan], &gains);
 };
 
 void newsoundloc(int chan, vec* loc)
@@ -173,11 +146,7 @@ void updatevol()
         return;
     loopi(MAXCHAN) if (soundlocs[i].inuse)
     {
-#ifdef USE_MIXER
-        if (Mix_Playing(i))
-#else
-        if (FSOUND_IsPlaying(i))
-#endif
+        if (MIX_TrackPlaying(sound_tracks[i]))
             updatechanvol(i, &soundlocs[i].loc);
         else
             soundlocs[i].inuse = false;
@@ -204,7 +173,7 @@ void playsound(int n, vec* loc)
         soundsatonce = 1;
     lastsoundmillis = lastmillis;
     if (soundsatonce > 5)
-        return; // avoid bursts of sounds with heavy packetloss and in sp
+        return;
     if (n < 0 || n >= samples.length()) {
         conoutf("unregistered sound: %d", n);
         return;
@@ -212,32 +181,27 @@ void playsound(int n, vec* loc)
 
     if (!samples[n]) {
         sprintf_sd(buf)("packages/sounds/%s.wav", snames[n]);
-
-#ifdef USE_MIXER
-        samples[n] = Mix_LoadWAV(path(buf));
-#else
-        samples[n] = FSOUND_Sample_Load(n, path(buf), FSOUND_LOOP_OFF, 0, 0);
-#endif
-
+        samples[n] = MIX_LoadAudio(mixer, path(buf), true);
         if (!samples[n]) {
             conoutf("failed to load sample: %s", buf);
             return;
         };
     };
 
-#ifdef USE_MIXER
-    int chan = Mix_PlayChannel(-1, samples[n], 0);
-#else
-    int chan = FSOUND_PlaySoundEx(FSOUND_FREE, samples[n], NULL, true);
-#endif
+    int chan = -1;
+    loopi(MAXCHAN) if (!MIX_TrackPlaying(sound_tracks[i]))
+    {
+        chan = i;
+        break;
+    };
     if (chan < 0)
         return;
+
+    MIX_SetTrackAudio(sound_tracks[chan], samples[n]);
     if (loc)
         newsoundloc(chan, loc);
     updatechanvol(chan, loc);
-#ifndef USE_MIXER
-    FSOUND_SetPaused(chan, false);
-#endif
+    MIX_PlayTrack(sound_tracks[chan], 0);
 };
 
 void sound(int n) { playsound(n, NULL); };

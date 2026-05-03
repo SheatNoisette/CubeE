@@ -7,8 +7,10 @@
 
 int scr_w = 1280;
 int scr_h = 720;
+SDL_Window* screen = NULL;
+SDL_GLContext glcontext = NULL;
 
-void cleanup(char* msg) // single program exit point;
+void cleanup(char* msg)
 {
     stop();
     disconnect(true);
@@ -16,7 +18,7 @@ void cleanup(char* msg) // single program exit point;
     cleangl();
     cleansound();
     cleanupserver();
-    SDL_ShowCursor(1);
+    SDL_ShowCursor();
     if (msg) {
 #ifdef WIN32
         MessageBox(NULL, msg, "cube fatal error", MB_OK | MB_SYSTEMMODAL);
@@ -28,19 +30,19 @@ void cleanup(char* msg) // single program exit point;
     exit(1);
 };
 
-void quit() // normal exit
+void quit()
 {
     writeservercfg();
     cleanup(NULL);
 };
 
-void fatal(char* s, char* o) // failure exit
+void fatal(char* s, char* o)
 {
     sprintf_sd(msg)("%s%s (%s)\n", s, o, SDL_GetError());
     cleanup(msg);
 };
 
-void* alloc(int s) // for some big chunks... most other allocs use the memory pool
+void* alloc(int s)
 {
     void* b = calloc(1, s);
     if (!b)
@@ -74,7 +76,12 @@ COMMAND(quit, ARG_NONE);
 
 void keyrepeat(bool on)
 {
-    SDL_EnableKeyRepeat(on ? SDL_DEFAULT_REPEAT_DELAY : 0, SDL_DEFAULT_REPEAT_INTERVAL);
+    if (screen) {
+        if (on)
+            SDL_StartTextInput(screen);
+        else
+            SDL_StopTextInput(screen);
+    }
 };
 
 VARF(gamespeed, 10, 100, 1000, if (multiplayer()) gamespeed = 100);
@@ -86,7 +93,7 @@ int framesinmap = 0;
 int main(int argc, char** argv)
 {
     bool dedicated = false;
-    int fs = SDL_FULLSCREEN, par = 0, uprate = 0, maxcl = 4;
+    int fs = 0, uprate = 0, maxcl = 4;
     char *sdesc = "", *ip = "", *master = NULL, *passwd = "";
     islittleendian = *((char*)&islittleendian);
 
@@ -134,12 +141,7 @@ int main(int argc, char** argv)
             conoutf("unknown commandline argument");
     };
 
-#ifdef _DEBUG
-    par = SDL_INIT_NOPARACHUTE;
-    fs = 0;
-#endif
-
-    if (SDL_Init(SDL_INIT_TIMER | SDL_INIT_VIDEO | par) < 0)
+    if (!SDL_Init(SDL_INIT_VIDEO))
         fatal("Unable to initialize SDL");
 
     log("net");
@@ -148,25 +150,27 @@ int main(int argc, char** argv)
 
     initclient();
     initserver(dedicated, uprate, sdesc, ip, master, passwd,
-        maxcl); // never returns if dedicated
+        maxcl);
 
     log("world");
     empty_world(7, true);
 
     log("video: sdl");
-    if (SDL_InitSubSystem(SDL_INIT_VIDEO) < 0)
-        fatal("Unable to initialize SDL Video");
 
     log("video: mode");
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-    if (SDL_SetVideoMode(scr_w, scr_h, 0, SDL_OPENGL | fs) == NULL)
-        fatal("Unable to create OpenGL screen");
+    screen = SDL_CreateWindow("cube engine", scr_w, scr_h, SDL_WINDOW_OPENGL | (fs ? SDL_WINDOW_FULLSCREEN : 0));
+    if (!screen)
+        fatal("Unable to create OpenGL window");
+
+    glcontext = SDL_GL_CreateContext(screen);
+    if (!glcontext)
+        fatal("Unable to create OpenGL context");
 
     log("video: misc");
-    SDL_WM_SetCaption("cube engine", NULL);
-    SDL_WM_GrabInput(SDL_GRAB_ON);
-    keyrepeat(false);
-    SDL_ShowCursor(0);
+    SDL_SetWindowMouseGrab(screen, true);
+    SDL_SetWindowKeyboardGrab(screen, true);
+    SDL_HideCursor();
 
     log("gl");
     gl_init(scr_w, scr_h);
@@ -194,12 +198,12 @@ int main(int argc, char** argv)
 
     log("localconnect");
     localconnect();
-    changemap("metl3"); // if this map is changed, also change depthcorrect()
+    changemap("metl3");
 
     log("mainloop");
     int ignore = 5;
     for (;;) {
-        int millis = SDL_GetTicks() * gamespeed / 100;
+        int millis = (int)(SDL_GetTicks() * gamespeed / 100);
         if (millis - lastmillis > 200)
             lastmillis = millis - 200;
         else if (millis - lastmillis < 1)
@@ -214,12 +218,10 @@ int main(int argc, char** argv)
         fps = (1000.0f / curtime + fps * 50) / 51;
         computeraytable(player1->o.x, player1->o.y);
         readdepth(scr_w, scr_h);
-        SDL_GL_SwapBuffers();
+        SDL_GL_SwapWindow(screen);
         extern void updatevol();
         updatevol();
-        if (framesinmap++ < 5) // cheap hack to get rid of initial sparklies, even
-                               // when triple buffering etc.
-        {
+        if (framesinmap++ < 5) {
             player1->yaw += 5;
             gl_drawframe(scr_w, scr_h, fps);
             player1->yaw -= 5;
@@ -229,28 +231,33 @@ int main(int argc, char** argv)
         int lasttype = 0, lastbut = 0;
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
-            case SDL_QUIT:
+            case SDL_EVENT_QUIT:
                 quit();
                 break;
 
-            case SDL_KEYDOWN:
-            case SDL_KEYUP:
-                keypress(event.key.keysym.sym, event.key.state == SDL_PRESSED, event.key.keysym.unicode);
+            case SDL_EVENT_KEY_DOWN:
+            case SDL_EVENT_KEY_UP:
+                conoutf("key %i", event.key.key);
+                keypress(event.key.key, event.key.down, 0);
                 break;
 
-            case SDL_MOUSEMOTION:
+            case SDL_EVENT_TEXT_INPUT:
+                textinput(event.text.text);
+                break;
+
+            case SDL_EVENT_MOUSE_MOTION:
                 if (ignore) {
                     ignore--;
                     break;
                 };
-                mousemove(event.motion.xrel, event.motion.yrel);
+                mousemove((int)event.motion.xrel, (int)event.motion.yrel);
                 break;
 
-            case SDL_MOUSEBUTTONDOWN:
-            case SDL_MOUSEBUTTONUP:
+            case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            case SDL_EVENT_MOUSE_BUTTON_UP:
                 if (lasttype == event.type && lastbut == event.button.button)
-                    break; // why?? get event twice without it
-                keypress(-event.button.button, event.button.state != 0, 0);
+                    break;
+                keypress(-event.button.button, event.button.down, 0);
                 lasttype = event.type;
                 lastbut = event.button.button;
                 break;

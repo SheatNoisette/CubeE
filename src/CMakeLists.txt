@@ -44,16 +44,14 @@ find_package(PkgConfig REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(ZLIB REQUIRED)
 
-pkg_check_modules(SDL REQUIRED sdl)
-pkg_check_modules(SDL_MIXER REQUIRED SDL_mixer)
+find_package(SDL3 REQUIRED)
+find_package(SDL3_mixer REQUIRED)
 
 if(BUILD_CLIENT)
     add_executable(cube_client ${CLIENT_SOURCES})
     target_include_directories(cube_client PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/3rdparty/stb
-        ${SDL_INCLUDE_DIRS}
-        ${SDL_MIXER_INCLUDE_DIRS}
         ${ZLIB_INCLUDE_DIRS}
     )
     target_compile_definitions(cube_client PRIVATE
@@ -63,14 +61,10 @@ if(BUILD_CLIENT)
         $<$<OR:$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:AppleClang>>:-Wno-c++11-narrowing -Wno-writable-strings -Wno-parentheses>
         $<$<CXX_COMPILER_ID:GNU>:-Wno-narrowing -Wno-write-strings -Wno-parentheses>
     )
-    target_link_directories(cube_client PRIVATE
-        ${SDL_LIBRARY_DIRS}
-        ${SDL_MIXER_LIBRARY_DIRS}
-    )
     target_link_libraries(cube_client PRIVATE
         enet
-        ${SDL_LIBRARIES}
-        ${SDL_MIXER_LIBRARIES}
+        SDL3::SDL3
+        SDL3_mixer::SDL3_mixer
         OpenGL::GL
         OpenGL::GLU
         ${ZLIB_LIBRARIES}
@@ -88,7 +82,6 @@ if(BUILD_SERVER)
     add_executable(cube_server ${SERVER_SOURCES})
     target_include_directories(cube_server PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
-        ${SDL_INCLUDE_DIRS}
         ${ZLIB_INCLUDE_DIRS}
     )
     target_compile_definitions(cube_server PRIVATE STANDALONE)
@@ -96,10 +89,7 @@ if(BUILD_SERVER)
         $<$<OR:$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:AppleClang>>:-Wno-c++11-narrowing -Wno-writable-strings -Wno-parentheses>
         $<$<CXX_COMPILER_ID:GNU>:-Wno-narrowing -Wno-write-strings -Wno-parentheses>
     )
-    target_link_directories(cube_server PRIVATE
-        ${SDL_LIBRARY_DIRS}
-    )
-    target_link_libraries(cube_server PRIVATE enet ${SDL_LIBRARIES} ${ZLIB_LIBRARIES})
+    target_link_libraries(cube_server PRIVATE enet SDL3::SDL3 ${ZLIB_LIBRARIES})
     if(APPLE)
         find_library(COCOA Cocoa)
         target_link_libraries(cube_server PRIVATE ${COCOA})

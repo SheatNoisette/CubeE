@@ -280,8 +280,13 @@ enum    // function signatures for script functions, see command.cpp
 #include <GL/glext.h>
 #endif
 
-#include <SDL.h>
+#include <SDL3/SDL.h>
+#include <SDL3_mixer/SDL_mixer.h>
 #include <enet/enet.h>
 #include <zlib.h>
+
+extern SDL_Window* screen;
+extern SDL_GLContext glcontext;
+extern bool saycommandon;
 
 #include "protos.h"				// external function decls
