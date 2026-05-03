@@ -52,6 +52,7 @@ if(BUILD_CLIENT)
     add_executable(cube_client ${CLIENT_SOURCES})
     target_include_directories(cube_client PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/3rdparty/stb
         ${SDL_INCLUDE_DIRS}
         ${SDL_IMAGE_INCLUDE_DIRS}
         ${SDL_MIXER_INCLUDE_DIRS}

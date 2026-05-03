@@ -42,7 +42,7 @@ extern void gl_drawframe(int w, int h, float curfps);
 extern bool installtex(int tnum, char *texname, int &xs, int &ys, bool clamp = false);
 extern void mipstats(int a, int b, int c);
 extern void vertf(float v1, float v2, float v3, sqr *ls, float t1, float t2);
-extern void addstrip(int tex, int start, int n);
+extern void addstrip(int tex, int start, int n, bool sky = false);
 extern int lookuptexture(int tex, int &xs, int &ys);
 
 // rendercubes

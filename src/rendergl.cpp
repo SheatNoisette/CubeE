@@ -2,13 +2,8 @@
 
 #include "cube.h"
 
-#ifdef DARWIN
-#define GL_COMBINE_EXT GL_COMBINE_ARB
-#define GL_COMBINE_RGB_EXT GL_COMBINE_RGB_ARB
-#define GL_SOURCE0_RBG_EXT GL_SOURCE0_RGB_ARB
-#define GL_SOURCE1_RBG_EXT GL_SOURCE1_RGB_ARB
-#define GL_RGB_SCALE_EXT GL_RGB_SCALE_ARB
-#endif
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 extern int curvert;
 
@@ -19,9 +14,42 @@ void purgetextures();
 GLUquadricObj *qsphere = NULL;
 int glmaxtexsize = 256;
 
+static void checkgl(const char *where)
+{
+    GLenum err;
+    while((err = glGetError()) != GL_NO_ERROR)
+    {
+        conoutf("GL error at %s: 0x%x", where, err);
+    }
+}
+
+// IDs 10 and 11 are reserved as missing-texture sentinels.
+// They sit in the gap between the base textures (1-9) and the sky cubemap (14+).
+const int MISSINGTEX    = 10;   // fallback for failed non-sky texture loads
+const int MISSINGSKYTEX = 11;   // fallback for a failed sky texture load
+
+// Creates a 2x2 magenta/black checker bound to the given raw GL id.
+static void createmissingtex(int tex)
+{
+    static const unsigned char pixels[] =
+    {
+        255,   0, 255,    0,   0,   0,
+          0,   0,   0,  255,   0, 255
+    };
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 2, 2, 0, GL_RGB, GL_UNSIGNED_BYTE, pixels);
+};
+
 void gl_init(int w, int h)
 {
     //#define fogvalues 0.5f, 0.6f, 0.7f, 1.0f
+    conoutf("init: OpenGL Version: %s", glGetString(GL_VERSION));
+    conoutf("init: GLSL Version: %s", glGetString(GL_SHADING_LANGUAGE_VERSION));
 
     glViewport(0, 0, w, h);
     glClearDepth(1.0);
@@ -47,12 +75,17 @@ void gl_init(int w, int h)
     char *exts = (char *)glGetString(GL_EXTENSIONS);
     
     if(exts && (strstr(exts, "GL_EXT_texture_env_combine") || strstr(exts, "GL_ARB_texture_env_combine"))) hasoverbright = true;
-    else if(!exts) hasoverbright = true;     // modern GL: combine is core since 1.3, extensions string may be NULL
-    else conoutf("WARNING: cannot use overbright lighting, using old lighting model!");
+    else
+    {
+        if(!exts) conoutf("WARNING: GL_EXTENSIONS unavailable, disabling overbright lighting");
+        else conoutf("WARNING: cannot use overbright lighting, using old lighting model!");
+    };
         
     glGetIntegerv(GL_MAX_TEXTURE_SIZE, &glmaxtexsize);
         
     purgetextures();
+    createmissingtex(MISSINGTEX);
+    createmissingtex(MISSINGSKYTEX);
 
     if(!(qsphere = gluNewQuadric())) fatal("glu sphere");
     gluQuadricDrawStyle(qsphere, GLU_FILL);
@@ -70,43 +103,47 @@ void cleangl()
 
 bool installtex(int tnum, char *texname, int &xs, int &ys, bool clamp)
 {
-    SDL_Surface *s = IMG_Load(texname);
-    if(!s) { conoutf("couldn't load texture %s", texname); return false; };
-    if(s->format->BitsPerPixel!=24 && s->format->BitsPerPixel!=32) { conoutf("texture must be 24bpp or 32bpp: %s", texname); return false; };
-
-    SDL_Surface *converted = NULL;
-    if(s->format->BitsPerPixel==32)
-    {
-        converted = SDL_CreateRGBSurface(SDL_SWSURFACE, s->w, s->h, 24,
-            s->format->Rmask, s->format->Gmask, s->format->Bmask, 0);
-        if(!converted) { conoutf("couldn't convert texture %s", texname); SDL_FreeSurface(s); return false; };
-        SDL_BlitSurface(s, NULL, converted, NULL);
-        SDL_FreeSurface(s);
-        s = converted;
-    };
+    int n = 0;
+    unsigned char *image = stbi_load(texname, &xs, &ys, &n, STBI_rgb_alpha);
+    if(!image) { conoutf("couldn't load texture %s", texname); return false; };
+    if(n != 4 && n != 3) { conoutf("texture must be 24bpp or 32bpp: %s", texname); stbi_image_free(image); return false; };
 
     glBindTexture(GL_TEXTURE_2D, tnum);
+    checkgl("glBindTexture");
+
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, clamp ? GL_CLAMP_TO_EDGE : GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, clamp ? GL_CLAMP_TO_EDGE : GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE); 
-    xs = s->w;
-    ys = s->h;
-    while(xs>glmaxtexsize || ys>glmaxtexsize) { xs /= 2; ys /= 2; };
-    void *scaledimg = s->pixels;
-    if(xs!=s->w)
+    glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    checkgl("texture parameters");
+
+    int scaledxs = xs, scaledys = ys;
+    while(scaledxs > glmaxtexsize || scaledys > glmaxtexsize) { scaledxs /= 2; scaledys /= 2; };
+    unsigned char *scaledimg = image;
+    if(scaledxs != xs || scaledys != ys)
     {
         conoutf("warning: quality loss: scaling %s", texname);
-        scaledimg = alloc(xs*ys*3);
-        gluScaleImage(GL_RGB, s->w, s->h, GL_UNSIGNED_BYTE, s->pixels, xs, ys, GL_UNSIGNED_BYTE, scaledimg);
+        scaledimg = (unsigned char *)malloc(scaledxs * scaledys * 4);
+        gluScaleImage(GL_RGBA, xs, ys, GL_UNSIGNED_BYTE, image, scaledxs, scaledys, GL_UNSIGNED_BYTE, scaledimg);
     };
-    if(gluBuild2DMipmaps(GL_TEXTURE_2D, GL_RGB, xs, ys, GL_RGB, GL_UNSIGNED_BYTE, scaledimg)) fatal("could not build mipmaps");
-    if(xs!=s->w) free(scaledimg);
-    SDL_FreeSurface(s);
+    if(gluBuild2DMipmaps(GL_TEXTURE_2D, GL_RGBA, scaledxs, scaledys, GL_RGBA, GL_UNSIGNED_BYTE, scaledimg)) fatal("could not build mipmaps");
+    GLenum err = glGetError();
+    if(err != GL_NO_ERROR)
+    {
+        conoutf("GL texture upload error for %s: 0x%x", texname, err);
+    }
+
+    GLint tw = 0, th = 0;
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &tw);
+    glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &th);
+    conoutf("init: uploaded texture %d: %dx%d", tnum, tw, th);
+
+    if(scaledimg != image) free(scaledimg);
+    stbi_image_free(image);
     return true;
-};
+}
 
 // management of texture slots
 // each texture slot can have multople texture frames, of which currently only the first is used
@@ -119,6 +156,7 @@ string texname[MAXTEX];
 int curtex = 0;
 const int FIRSTTEX = 1000;                  // opengl id = loaded id + FIRSTTEX
 // std 1+, sky 14+, mdls 20+
+
 
 const int MAXFRAMES = 2;                    // increase to allow more complex shader defs
 int mapping[256][MAXFRAMES];                // ( cube texture, frame ) -> ( opengl id, name )
@@ -150,6 +188,7 @@ int lookuptexture(int tex, int &xs, int &ys)
 {
     int frame = 0;                      // other frames?
     int tid = mapping[tex][frame];
+
 
     if(tid>=FIRSTTEX)
     {
@@ -186,62 +225,79 @@ int lookuptexture(int tex, int &xs, int &ys)
         texy[curtex] = ys;
         curtex++;
         return tnum;
-    }
-    else
-    {
-        return mapping[tex][frame] = FIRSTTEX;  // temp fix
     };
+
+    int fallback = (tex == DEFAULT_SKY) ? MISSINGSKYTEX : MISSINGTEX;
+    conoutf("WARNING: failed to load texture slot %d: %s (using missing-tex %d)", tex, name, fallback);
+    xs = ys = 2;
+    return mapping[tex][frame] = fallback;
 };
 
 void setupworld()
 {
+    glEnable(GL_TEXTURE_2D);
+
     glEnableClientState(GL_VERTEX_ARRAY);
     glEnableClientState(GL_COLOR_ARRAY);
-    glEnableClientState(GL_TEXTURE_COORD_ARRAY); 
+    glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+
     setarraypointers();
 
     if(hasoverbright)
     {
-        glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE_EXT); 
-        glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB_EXT, GL_MODULATE);
-        glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE0_RGB_EXT, GL_TEXTURE);
-        glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE1_RGB_EXT, GL_PRIMARY_COLOR_EXT);
-    };
-};
+        glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE);
+        glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB, GL_MODULATE);
+
+        glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE0_RGB, GL_TEXTURE);
+        glTexEnvi(GL_TEXTURE_ENV, GL_SOURCE1_RGB, GL_PRIMARY_COLOR);
+
+        glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND0_RGB, GL_SRC_COLOR);
+        glTexEnvi(GL_TEXTURE_ENV, GL_OPERAND1_RGB, GL_SRC_COLOR);
+
+        glTexEnvf(GL_TEXTURE_ENV, GL_RGB_SCALE, 1.0f);
+    }
+    else
+    {
+        glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    }
+}
 
 int skyoglid;
 
-struct strip { int tex, start, num; };
+struct strip { int tex, start, num; bool sky; };
 vector<strip> strips;
 
 void renderstripssky()
 {
     glBindTexture(GL_TEXTURE_2D, skyoglid);
-    loopv(strips) if(strips[i].tex==skyoglid) glDrawArrays(GL_TRIANGLE_STRIP, strips[i].start, strips[i].num);
+    loopv(strips) if(strips[i].sky) glDrawArrays(GL_TRIANGLE_STRIP, strips[i].start, strips[i].num);
 };
 
 void renderstrips()
 {
     int lasttex = -1;
-    loopv(strips) if(strips[i].tex!=skyoglid)
+    loopv(strips) if(!strips[i].sky)
     {
-        if(strips[i].tex!=lasttex)
+        if(strips[i].tex != lasttex)
         {
-            glBindTexture(GL_TEXTURE_2D, strips[i].tex); 
+            glBindTexture(GL_TEXTURE_2D, strips[i].tex);
             lasttex = strips[i].tex;
-        };
-        glDrawArrays(GL_TRIANGLE_STRIP, strips[i].start, strips[i].num);  
-    };   
+        }
+        glDrawArrays(GL_TRIANGLE_STRIP, strips[i].start, strips[i].num);
+    }
 };
 
-void overbright(float amount) { if(hasoverbright) glTexEnvf(GL_TEXTURE_ENV, GL_RGB_SCALE_EXT, amount ); };
+void overbright(float amount) {
+    if(hasoverbright) glTexEnvf(GL_TEXTURE_ENV, GL_RGB_SCALE, amount);
+};
 
-void addstrip(int tex, int start, int n)
+void addstrip(int tex, int start, int n, bool sky)
 {
     strip &s = strips.add();
     s.tex = tex;
     s.start = start;
     s.num = n;
+    s.sky = sky;
 };
 
 VARFP(gamma, 30, 100, 300,
@@ -357,6 +413,7 @@ void gl_drawframe(int w, int h, float curfps)
     finishstrips();
 
     setupworld();
+    checkgl("setupworld");
 
     renderstripssky();
 
