@@ -114,7 +114,9 @@ COMMAND(saycommand, ARG_VARI);
 COMMAND(mapmsg, ARG_1STR);
 
 #ifndef WIN32
+#ifndef __APPLE__
 #include <X11/Xlib.h>
+#endif
 #include <SDL_syswm.h>
 #endif
 
@@ -127,6 +129,8 @@ void pasteconsole()
     strcat_s(commandbuf, cb);
     GlobalUnlock(cb);
     CloseClipboard();
+    #elif defined(__APPLE__)
+    // macOS clipboard not supported via X11
     #else
     SDL_SysWMinfo wminfo;
     SDL_VERSION(&wminfo.version); 

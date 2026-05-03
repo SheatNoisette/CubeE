@@ -46,7 +46,8 @@ void gl_init(int w, int h)
 
     char *exts = (char *)glGetString(GL_EXTENSIONS);
     
-    if(strstr(exts, "GL_EXT_texture_env_combine")) hasoverbright = true;
+    if(exts && (strstr(exts, "GL_EXT_texture_env_combine") || strstr(exts, "GL_ARB_texture_env_combine"))) hasoverbright = true;
+    else if(!exts) hasoverbright = true;     // modern GL: combine is core since 1.3, extensions string may be NULL
     else conoutf("WARNING: cannot use overbright lighting, using old lighting model!");
         
     glGetIntegerv(GL_MAX_TEXTURE_SIZE, &glmaxtexsize);
@@ -71,14 +72,25 @@ bool installtex(int tnum, char *texname, int &xs, int &ys, bool clamp)
 {
     SDL_Surface *s = IMG_Load(texname);
     if(!s) { conoutf("couldn't load texture %s", texname); return false; };
-    if(s->format->BitsPerPixel!=24) { conoutf("texture must be 24bpp: %s", texname); return false; };
-    // loopi(s->w*s->h*3) { uchar *p = (uchar *)s->pixels+i; *p = 255-*p; };  
+    if(s->format->BitsPerPixel!=24 && s->format->BitsPerPixel!=32) { conoutf("texture must be 24bpp or 32bpp: %s", texname); return false; };
+
+    SDL_Surface *converted = NULL;
+    if(s->format->BitsPerPixel==32)
+    {
+        converted = SDL_CreateRGBSurface(SDL_SWSURFACE, s->w, s->h, 24,
+            s->format->Rmask, s->format->Gmask, s->format->Bmask, 0);
+        if(!converted) { conoutf("couldn't convert texture %s", texname); SDL_FreeSurface(s); return false; };
+        SDL_BlitSurface(s, NULL, converted, NULL);
+        SDL_FreeSurface(s);
+        s = converted;
+    };
+
     glBindTexture(GL_TEXTURE_2D, tnum);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, clamp ? GL_CLAMP_TO_EDGE : GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, clamp ? GL_CLAMP_TO_EDGE : GL_REPEAT);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR); //NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE); 
     xs = s->w;
     ys = s->h;
@@ -86,7 +98,7 @@ bool installtex(int tnum, char *texname, int &xs, int &ys, bool clamp)
     void *scaledimg = s->pixels;
     if(xs!=s->w)
     {
-        conoutf("warning: quality loss: scaling %s", texname);     // for voodoo cards under linux
+        conoutf("warning: quality loss: scaling %s", texname);
         scaledimg = alloc(xs*ys*3);
         gluScaleImage(GL_RGB, s->w, s->h, GL_UNSIGNED_BYTE, s->pixels, xs, ys, GL_UNSIGNED_BYTE, scaledimg);
     };
