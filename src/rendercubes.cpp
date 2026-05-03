@@ -55,6 +55,7 @@ VAR(lighterror,1,8,100);
 
 void render_flat(int wtex, int x, int y, int size, int h, sqr *l1, sqr *l2, sqr *l3, sqr *l4, bool isceil)  // floor/ceil quads
 {
+    if(wtex==DEFAULT_SKY) return;
     vertcheck();
     if(showm) { l3 = l1 = &sbright; l4 = l2 = &sdark; };
 
@@ -134,6 +135,7 @@ void render_flat(int wtex, int x, int y, int size, int h, sqr *l1, sqr *l2, sqr 
 
 void render_flatdelta(int wtex, int x, int y, int size, float h1, float h2, float h3, float h4, sqr *l1, sqr *l2, sqr *l3, sqr *l4, bool isceil)  // floor/ceil quads on a slope
 {
+    if(wtex==DEFAULT_SKY) return;
     vertcheck();
     if(showm) { l3 = l1 = &sbright; l4 = l2 = &sdark; };
 
@@ -194,23 +196,29 @@ void render_2tris(sqr *h, sqr *s, int x1, int y1, int x2, int y2, int x3, int y3
     vertcheck();
 
     int sx, sy;
-    int gltex = lookuptexture(h->ftex, sx, sy);
-    float xf = TEXTURESCALE/sx;
-    float yf = TEXTURESCALE/sy;
+    if(h->ftex!=DEFAULT_SKY)
+    {
+        int gltex = lookuptexture(h->ftex, sx, sy);
+        float xf = TEXTURESCALE/sx;
+        float yf = TEXTURESCALE/sy;
 
-    vertf((float)x1, h->floor, (float)y1, l1, xf*x1, yf*y1);
-    vertf((float)x2, h->floor, (float)y2, l2, xf*x2, yf*y2);
-    vertf((float)x3, h->floor, (float)y3, l3, xf*x3, yf*y3);
-    addstrip(gltex, curvert-3, 3);
+        vertf((float)x1, h->floor, (float)y1, l1, xf*x1, yf*y1);
+        vertf((float)x2, h->floor, (float)y2, l2, xf*x2, yf*y2);
+        vertf((float)x3, h->floor, (float)y3, l3, xf*x3, yf*y3);
+        addstrip(gltex, curvert-3, 3);
+    }
 
-    gltex = lookuptexture(h->ctex, sx, sy);
-    xf = TEXTURESCALE/sx;
-    yf = TEXTURESCALE/sy;
+    if(h->ctex!=DEFAULT_SKY)
+    {
+        int gltex = lookuptexture(h->ctex, sx, sy);
+        float xf = TEXTURESCALE/sx;
+        float yf = TEXTURESCALE/sy;
 
-    vertf((float)x3, h->ceil, (float)y3, l3, xf*x3, yf*y3);
-    vertf((float)x2, h->ceil, (float)y2, l2, xf*x2, yf*y2);
-    vertf((float)x1, h->ceil, (float)y1, l1, xf*x1, yf*y1);
-    addstrip(gltex, curvert-3, 3);
+        vertf((float)x3, h->ceil, (float)y3, l3, xf*x3, yf*y3);
+        vertf((float)x2, h->ceil, (float)y2, l2, xf*x2, yf*y2);
+        vertf((float)x1, h->ceil, (float)y1, l1, xf*x1, yf*y1);
+        addstrip(gltex, curvert-3, 3);
+    }
     nquads++;
 };
 
@@ -231,6 +239,7 @@ void render_tris(int x, int y, int size, bool topleft,
 
 void render_square(int wtex, float floor1, float floor2, float ceil1, float ceil2, int x1, int y1, int x2, int y2, int size, sqr *l1, sqr *l2, bool flip)   // wall quads
 {
+    if(wtex==DEFAULT_SKY) return;
     stripend();
     vertcheck();
     if(showm) { l1 = &sbright; l2 = &sdark; };

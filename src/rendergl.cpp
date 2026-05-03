@@ -23,10 +23,8 @@ static void checkgl(const char *where)
     }
 }
 
-// IDs 10 and 11 are reserved as missing-texture sentinels.
-// They sit in the gap between the base textures (1-9) and the sky cubemap (14+).
-const int MISSINGTEX    = 10;   // fallback for failed non-sky texture loads
-const int MISSINGSKYTEX = 11;   // fallback for a failed sky texture load
+// ID 10 is reserved as a missing-texture sentinel.
+const int MISSINGTEX = 10;
 
 // Creates a 2x2 magenta/black checker bound to the given raw GL id.
 static void createmissingtex(int tex)
@@ -85,7 +83,6 @@ void gl_init(int w, int h)
         
     purgetextures();
     createmissingtex(MISSINGTEX);
-    createmissingtex(MISSINGSKYTEX);
 
     if(!(qsphere = gluNewQuadric())) fatal("glu sphere");
     gluQuadricDrawStyle(qsphere, GLU_FILL);
@@ -227,10 +224,9 @@ int lookuptexture(int tex, int &xs, int &ys)
         return tnum;
     };
 
-    int fallback = (tex == DEFAULT_SKY) ? MISSINGSKYTEX : MISSINGTEX;
-    conoutf("WARNING: failed to load texture slot %d: %s (using missing-tex %d)", tex, name, fallback);
+    conoutf("WARNING: failed to load texture slot %d: %s (using missing-tex %d)", tex, name, MISSINGTEX);
     xs = ys = 2;
-    return mapping[tex][frame] = fallback;
+    return mapping[tex][frame] = MISSINGTEX;
 };
 
 void setupworld()
@@ -262,21 +258,13 @@ void setupworld()
     }
 }
 
-int skyoglid;
-
-struct strip { int tex, start, num; bool sky; };
+struct strip { int tex, start, num; };
 vector<strip> strips;
-
-void renderstripssky()
-{
-    glBindTexture(GL_TEXTURE_2D, skyoglid);
-    loopv(strips) if(strips[i].sky) glDrawArrays(GL_TRIANGLE_STRIP, strips[i].start, strips[i].num);
-};
 
 void renderstrips()
 {
     int lasttex = -1;
-    loopv(strips) if(!strips[i].sky)
+    loopv(strips)
     {
         if(strips[i].tex != lasttex)
         {
@@ -291,13 +279,12 @@ void overbright(float amount) {
     if(hasoverbright) glTexEnvf(GL_TEXTURE_ENV, GL_RGB_SCALE, amount);
 };
 
-void addstrip(int tex, int start, int n, bool sky)
+void addstrip(int tex, int start, int n)
 {
     strip &s = strips.add();
     s.tex = tex;
     s.start = start;
     s.num = n;
-    s.sky = sky;
 };
 
 VARFP(gamma, 30, 100, 300,
@@ -399,10 +386,20 @@ void gl_drawframe(int w, int h, float curfps)
     transplayer();
 
     glEnable(GL_TEXTURE_2D);
-    
-    int xs, ys;
-    skyoglid = lookuptexture(DEFAULT_SKY, xs, ys);
-   
+
+    glLoadIdentity();
+    glRotated(player1->pitch, -1.0, 0.0, 0.0);
+    glRotated(player1->yaw,   0.0, 1.0, 0.0);
+    glRotated(90.0, 1.0, 0.0, 0.0);
+    glColor3f(1.0f, 1.0f, 1.0f);
+    glDisable(GL_FOG);
+    glDepthFunc(GL_ALWAYS);
+    draw_envbox(14, fog*4/3);
+    glDepthFunc(GL_LESS);
+    glEnable(GL_FOG);
+
+    transplayer();
+
     resetcubes();
             
     curvert = 0;
@@ -414,19 +411,6 @@ void gl_drawframe(int w, int h, float curfps)
 
     setupworld();
     checkgl("setupworld");
-
-    renderstripssky();
-
-    glLoadIdentity();
-    glRotated(player1->pitch, -1.0, 0.0, 0.0);
-    glRotated(player1->yaw,   0.0, 1.0, 0.0);
-    glRotated(90.0, 1.0, 0.0, 0.0);
-    glColor3f(1.0f, 1.0f, 1.0f);
-    glDisable(GL_FOG);
-    glDepthFunc(GL_GREATER);
-    draw_envbox(14, fog*4/3);
-    glDepthFunc(GL_LESS);
-    glEnable(GL_FOG);
 
     transplayer();
         
