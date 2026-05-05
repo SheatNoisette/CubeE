@@ -350,7 +350,7 @@ void fixplayer1range()
         player1->yaw -= 360.0f;
 };
 
-void mousemove(int dx, int dy)
+void mousemove(float dx, float dy)
 {
     if (player1->state == CS_DEAD || intermission)
         return;

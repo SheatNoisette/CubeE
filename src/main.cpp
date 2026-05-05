@@ -168,9 +168,9 @@ int main(int argc, char** argv)
         fatal("Unable to create OpenGL context");
 
     log("video: misc");
-    SDL_SetWindowMouseGrab(screen, true);
+    if (!SDL_SetWindowRelativeMouseMode(screen, true))
+        fatal("Unable to enable relative mouse mode");
     SDL_SetWindowKeyboardGrab(screen, true);
-    SDL_HideCursor();
 
     log("gl");
     gl_init(scr_w, scr_h);

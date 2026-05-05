@@ -76,7 +76,7 @@ extern void changemapserv(char *name, int mode);
 extern void writeclientinfo(FILE *f);
 
 // clientgame
-extern void mousemove(int dx, int dy); 
+extern void mousemove(float dx, float dy);
 extern void updateworld(int millis);
 extern void startmap(char *name);
 extern void changemap(char *name);
