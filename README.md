@@ -6,10 +6,11 @@ Tweaks:
 - Use STB Libraries instead of SDL_Image
 - Legacy OpenGL fixes for macOS
 - Use CMake instead of `make` as a build system
+- Ported to SDL3 / SDL3 Mixer with few workarounds
 
 ## Building
 
-Dependencies: SDL 1.2, SDL_mixer, OpenGL, zlib
+Dependencies: SDL 3, SDL_mixer 3, OpenGL, zlib
 ```sh
 mkdir build && cd build
 cmake ..
