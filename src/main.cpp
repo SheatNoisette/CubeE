@@ -249,7 +249,7 @@ int main(int argc, char** argv)
                     ignore--;
                     break;
                 };
-                mousemove((int)event.motion.xrel, (int)event.motion.yrel);
+                mousemove(event.motion.xrel, event.motion.yrel);
                 break;
 
             case SDL_EVENT_MOUSE_BUTTON_DOWN:
