@@ -260,6 +260,17 @@ int main(int argc, char** argv)
                 lasttype = event.type;
                 lastbut = event.button.button;
                 break;
+
+            // @TODO: Add a proper code ? Hacky way to reimplement SDL1 behavior...
+            case SDL_EVENT_MOUSE_WHEEL:
+                if (event.wheel.y > 0) {
+                    keypress(-4, true, 0);
+                    keypress(-4, false, 0);
+                } else if (event.wheel.y < 0) {
+                    keypress(-5, true, 0);
+                    keypress(-5, false, 0);
+                };
+                break;
             };
         };
     };
