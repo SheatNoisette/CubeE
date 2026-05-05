@@ -237,7 +237,6 @@ int main(int argc, char** argv)
 
             case SDL_EVENT_KEY_DOWN:
             case SDL_EVENT_KEY_UP:
-                conoutf("key %i", event.key.key);
                 keypress(event.key.key, event.key.down, 0);
                 break;
 
