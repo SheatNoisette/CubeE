@@ -25,9 +25,13 @@ cmake .. -DBUILD_SERVER=OFF   # client only
 ```
 
 Place assets, assuming the
-![https://sourceforge.net/projects/cube/files/cube/2005_08_29/cube_2005_08_29_unix.tar.gz/download]("cube_2005_08_29_unix.tar.gz") is available in the root repository:
+["cube_2005_08_29_unix.tar.gz"](https://sourceforge.net/projects/cube/files/cube/2005_08_29/cube_2005_08_29_unix.tar.gz/download) is available in the root repository:
 ```
 tar -xzf cube_2005_08_29_unix.tar.gz
+```
+You may now start the game using the assets downloaded:
+```
+cd cube;../build/src/cube_client
 ```
 
 ## License
